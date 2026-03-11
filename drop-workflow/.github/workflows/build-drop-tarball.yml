@@ -1,0 +1,226 @@
+name: Build Tarball
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  NODE_ENV: production
+  NUXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    
+    runs-on: ${{ matrix.runner }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+      
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+        id: pnpm-cache
+      
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      
+      - name: Cache Rust cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            torrential/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protoc
+      
+      - name: Install Node.js dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Build torrential
+        run: cd torrential && cargo build --release
+      
+      - name: Run postinstall
+        run: pnpm run postinstall
+      
+      - name: Build application
+        run: pnpm run build
+      
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(jq -r '.version' package.json)
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            # Remove 'v' prefix if present
+            VERSION="${VERSION#v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Prepare tarball contents
+        run: |
+          mkdir -p staging/app
+          
+          # Copy built application
+          cp -r .output/server/* staging/app/
+          
+          # Copy prisma files
+          cp -r prisma staging/
+          cp prisma.config.ts staging/
+          
+          # Copy nginx config
+          cp build/nginx.conf staging/
+          
+          # Copy torrential binary
+          cp torrential/target/release/torrential staging/
+          chmod +x staging/torrential
+          
+          # Create launch script
+          cat > staging/launch.sh << 'LAUNCH_EOF'
+          #!/bin/bash
+          
+          # Drop Server Launch Script for Tarball Installation
+          # This file starts up the Drop server by running migrations and then starting the executable
+          
+          set -e
+          
+          echo "[Drop] Starting server..."
+          
+          # Required environment variables
+          : "${DATABASE_URL:?DATABASE_URL environment variable is required}"
+          : "${DATA:?DATA directory environment variable is required}"
+          : "${LIBRARY:?LIBRARY directory environment variable is required}"
+          
+          # Set defaults for optional variables
+          export EXTERNAL_URL="${EXTERNAL_URL:-http://localhost:3000}"
+          export NGINX_CONFIG="${NGINX_CONFIG:-$(pwd)/nginx.conf}"
+          export PORT="${PORT:-4000}"
+          
+          # Ensure data directory exists
+          mkdir -p "$DATA"
+          
+          # Run migrations
+          echo "[Drop] Running database migrations..."
+          npx prisma migrate deploy
+          
+          # Start NGINX in background
+          echo "[Drop] Starting NGINX..."
+          nginx -c "$NGINX_CONFIG" &
+          NGINX_PID=$!
+          
+          # Trap to cleanup NGINX on exit
+          trap "kill $NGINX_PID 2>/dev/null || true" EXIT
+          
+          # Start Drop server
+          echo "[Drop] Starting application server..."
+          node ./app/server/index.mjs
+          LAUNCH_EOF
+          chmod +x staging/launch.sh
+          
+          # Create README
+          cat > staging/README.txt << 'README_EOF'
+          Drop Server - Tarball Installation
+          ===================================
+          
+          Prerequisites:
+          - Node.js 22.x or later
+          - PostgreSQL database
+          - NGINX web server (must be installed on system)
+          
+          Required Environment Variables:
+          - DATABASE_URL: PostgreSQL connection string
+            Example: postgres://drop:drop@localhost:5432/drop
+          - DATA: Directory for Drop data storage
+            Example: /var/lib/drop/data
+          - LIBRARY: Directory containing your game library
+            Example: /var/lib/drop/library
+          
+          Optional Environment Variables:
+          - EXTERNAL_URL: External URL for the server (default: http://localhost:3000)
+          - NGINX_CONFIG: Path to nginx.conf (default: ./nginx.conf)
+          - PORT: Internal application port (default: 4000)
+          - TORRENTIAL_PATH: Custom path to torrential binary
+          
+          Quick Start:
+          1. Install Node.js 22+ and PostgreSQL
+          2. Create the database: createdb drop
+          3. Set environment variables (see above)
+          4. Run: ./launch.sh
+          
+          For more information, visit: https://docs-next.droposs.org/admin/quickstart/
+          README_EOF
+      
+      - name: Create tarball
+        run: |
+          cd staging
+          tar -czvf ../drop-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz .
+          cd ..
+          echo "Tarball created: drop-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz"
+          ls -la drop-*.tar.gz
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drop-${{ matrix.arch }}
+          path: drop-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      
+      - name: List artifacts
+        run: ls -la artifacts/
+      
+      - name: Upload tarballs to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          fail-on-unmatched-files: true
