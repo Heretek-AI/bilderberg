@@ -1,4 +1,4 @@
-name: Build Tarball
+name: Build Drop Tarball
 
 on:
   release:
