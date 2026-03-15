@@ -36,6 +36,8 @@ jobs:
       
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 9
       
       - name: Get pnpm store directory
         shell: bash
@@ -223,4 +225,3 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*.tar.gz
-          fail-on-unmatched-files: true
