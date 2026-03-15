@@ -306,12 +306,33 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: always() && needs.build.result == 'success'
 
     permissions:
       contents: write
 
     steps:
+      - name: Get version for manual build
+        id: version
+        if: github.event_name != 'release'
+        run: |
+          VERSION=$(date +%m-%d-%Y)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create release for manual build
+        if: github.event_name != 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: RAGFlow ${{ steps.version.outputs.version }}
+          body: |
+            RAGFlow tarball build from manual workflow dispatch.
+            Built on ${{ steps.version.outputs.version }}.
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
