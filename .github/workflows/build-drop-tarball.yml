@@ -23,9 +23,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     
     steps:
-      - name: Checkout repository
+      - name: Checkout Drop repository
         uses: actions/checkout@v4
         with:
+          repository: Drop-OSS/drop
           submodules: true
           fetch-depth: 0
       
