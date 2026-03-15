@@ -128,8 +128,16 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          # Use unsafe-best-match to handle dependency conflicts between indexes
-          uv sync --python ${{ env.PYTHON_VERSION }} --index-strategy unsafe-best-match
+          # Handle mirror index URLs in uv.lock (similar to Dockerfile approach)
+          if [[ "${{ inputs.use_china_mirrors }}" == "true" ]]; then
+            sed -i 's|pypi.org|pypi.tuna.tsinghua.edu.cn|g' uv.lock
+          else
+            sed -i 's|pypi.tuna.tsinghua.edu.cn|pypi.org|g' uv.lock
+          fi
+          # Use --frozen to install from lock file without resolving
+          uv sync --python ${{ env.PYTHON_VERSION }} --frozen
+          # Ensure pip is available in the venv for runtime package installation
+          .venv/bin/python3 -m ensurepip --upgrade
 
       - name: Build frontend
         run: |
