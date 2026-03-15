@@ -119,9 +119,9 @@ jobs:
       - name: Download dependencies
         run: |
           if [[ "${{ inputs.use_china_mirrors }}" == "true" ]]; then
-            python download_deps.py --china-mirrors
+            uv run --with nltk --with huggingface-hub python download_deps.py --china-mirrors
           else
-            python download_deps.py
+            uv run --with nltk --with huggingface-hub python download_deps.py
           fi
         env:
           HF_ENDPOINT: ${{ inputs.use_china_mirrors == true && 'https://hf-mirror.com' || '' }}
