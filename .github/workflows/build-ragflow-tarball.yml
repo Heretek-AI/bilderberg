@@ -116,6 +116,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Fix uv.lock mirror URLs
+        run: |
+          # Handle mirror index URLs in uv.lock (similar to Dockerfile approach)
+          # The uv.lock file may contain China mirror URLs, replace with standard PyPI
+          if [[ "${{ inputs.use_china_mirrors }}" == "true" ]]; then
+            sed -i 's|pypi.org|pypi.tuna.tsinghua.edu.cn|g' uv.lock
+          else
+            sed -i 's|pypi.tuna.tsinghua.edu.cn|pypi.org|g' uv.lock
+          fi
+
       - name: Download dependencies
         run: |
           if [[ "${{ inputs.use_china_mirrors }}" == "true" ]]; then
@@ -128,12 +138,6 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          # Handle mirror index URLs in uv.lock (similar to Dockerfile approach)
-          if [[ "${{ inputs.use_china_mirrors }}" == "true" ]]; then
-            sed -i 's|pypi.org|pypi.tuna.tsinghua.edu.cn|g' uv.lock
-          else
-            sed -i 's|pypi.tuna.tsinghua.edu.cn|pypi.org|g' uv.lock
-          fi
           # Use --frozen to install from lock file without resolving
           uv sync --python ${{ env.PYTHON_VERSION }} --frozen
           # Ensure pip is available in the venv for runtime package installation
