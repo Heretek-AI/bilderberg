@@ -70,7 +70,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y protoc
+          sudo apt-get install -y protobuf-compiler
       
       - name: Install Node.js dependencies
         run: pnpm install --frozen-lockfile
