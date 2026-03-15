@@ -1,0 +1,312 @@
+name: Build RAGFlow Tarball
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      use_china_mirrors:
+        description: 'Use China mirrors for downloads'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '20'
+  UV_VERSION: '0.9.16'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            uv_arch: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            uv_arch: aarch64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout RAGFlow repository
+        uses: actions/checkout@v4
+        with:
+          repository: infiniflow/ragflow
+          submodules: true
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --match=v* --first-parent --always)
+          VERSION="${VERSION#v}"
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-0 libglx-mesa0 libgl1 \
+            pkg-config libicu-dev libgdiplus \
+            default-jdk \
+            libatk-bridge2.0-0 \
+            libpython3-dev libgtk-4-1 libnss3 xdg-utils libgbm-dev \
+            libjemalloc-dev \
+            gnupg unzip curl wget git vim less \
+            ghostscript pandoc texlive \
+            fonts-freefont-ttf fonts-noto-cjk \
+            postgresql-client \
+            unixodbc-dev
+
+      - name: Install NGINX
+        run: |
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor -o /etc/apt/keyrings/nginx-archive-keyring.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/nginx-archive-keyring.gpg] https://nginx.org/packages/mainline/ubuntu/ noble nginx" | sudo tee /etc/apt/sources.list.d/nginx.list
+          sudo apt-get update
+          sudo apt-get install -y nginx
+          sudo apt-mark hold nginx
+
+      - name: Install MS SQL ODBC driver
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            ACCEPT_EULA=Y sudo apt-get install -y msodbcsql18
+          else
+            ACCEPT_EULA=Y sudo apt-get install -y msodbcsql17
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        run: |
+          curl -LsSf "https://github.com/astral-sh/uv/releases/download/${{ env.UV_VERSION }}/uv-${{ matrix.uv_arch }}-unknown-linux-gnu.tar.gz" | tar xz
+          sudo cp "uv-${{ matrix.uv_arch }}-unknown-linux-gnu/uv" /usr/local/bin/
+          sudo cp "uv-${{ matrix.uv_arch }}-unknown-linux-gnu/uvx" /usr/local/bin/ 2>/dev/null || true
+          rm -rf "uv-${{ matrix.uv_arch }}-unknown-linux-gnu"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Download dependencies
+        run: |
+          if [[ "${{ inputs.use_china_mirrors }}" == "true" ]]; then
+            python download_deps.py --china-mirrors
+          else
+            python download_deps.py
+          fi
+        env:
+          HF_ENDPOINT: ${{ inputs.use_china_mirrors == true && 'https://hf-mirror.com' || '' }}
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --python ${{ env.PYTHON_VERSION }} --frozen
+
+      - name: Build frontend
+        run: |
+          cd web
+          npm install
+          npm run build
+
+      - name: Create version file
+        run: |
+          VERSION_INFO=$(git describe --tags --match=v* --first-parent --always)
+          echo "RAGFlow version: $VERSION_INFO"
+          echo "$VERSION_INFO" > VERSION
+
+      - name: Prepare tarball contents
+        run: |
+          mkdir -p staging/ragflow
+
+          # Copy application code
+          cp -r web staging/ragflow/
+          cp -r admin staging/ragflow/
+          cp -r api staging/ragflow/
+          cp -r conf staging/ragflow/
+          cp -r deepdoc staging/ragflow/
+          cp -r rag staging/ragflow/
+          cp -r agent staging/ragflow/
+          cp -r mcp staging/ragflow/
+          cp -r common staging/ragflow/
+          cp -r memory staging/ragflow/
+          cp -r bin staging/ragflow/
+          cp pyproject.toml uv.lock staging/ragflow/
+          cp VERSION staging/ragflow/
+
+          # Copy Python virtual environment
+          cp -r .venv staging/ragflow/
+
+          # Copy docker configuration
+          cp docker/service_conf.yaml.template staging/ragflow/conf/
+          cp docker/entrypoint.sh staging/ragflow/
+          chmod +x staging/ragflow/entrypoint.sh
+
+          # Copy built frontend
+          cp -r web/dist staging/ragflow/web/
+
+          # Copy downloaded models and resources
+          mkdir -p staging/ragflow/rag/res/deepdoc
+          cp -r huggingface.co/InfiniFlow/text_concat_xgb_v1.0 staging/ragflow/rag/res/deepdoc/ 2>/dev/null || true
+          cp -r huggingface.co/InfiniFlow/deepdoc staging/ragflow/rag/res/deepdoc/ 2>/dev/null || true
+
+          # Copy NLTK data
+          cp -r nltk_data staging/ragflow/
+
+          # Copy tika and tiktoken files
+          cp tika-server-standard-3.2.3.jar staging/ragflow/ 2>/dev/null || true
+          cp tika-server-standard-3.2.3.jar.md5 staging/ragflow/ 2>/dev/null || true
+          cp cl100k_base.tiktoken staging/ragflow/9b5ad71b2ce5302211f9c61530b329a4922fc6a4 2>/dev/null || true
+
+          # Copy Chrome and ChromeDriver
+          mkdir -p staging/ragflow/opt/chrome
+          cp -r chrome-linux64/* staging/ragflow/opt/chrome/ 2>/dev/null || true
+          cp chromedriver staging/ragflow/usr/local/bin/ 2>/dev/null || true
+
+          # Create launch script
+          cat > staging/ragflow/launch.sh << 'LAUNCH_EOF'
+          #!/bin/bash
+          # RAGFlow Server Launch Script for Tarball Installation
+          # This file starts up the RAGFlow server
+
+          set -e
+
+          echo "[RAGFlow] Starting server..."
+
+          # Required environment variables
+          : "\${MYSQL_HOST:?MYSQL_HOST environment variable is required}"
+          : "\${MYSQL_PORT:?MYSQL_PORT environment variable is required}"
+          : "\${MYSQL_USER:?MYSQL_USER environment variable is required}"
+          : "\${MYSQL_PASSWORD:?MYSQL_PASSWORD environment variable is required}"
+          : "\${MINIO_HOST:?MINIO_HOST environment variable is required}"
+          : "\${MINIO_PORT:?MINIO_PORT environment variable is required}"
+          : "\${MINIO_USER:?MINIO_USER environment variable is required}"
+          : "\${MINIO_PASSWORD:?MINIO_PASSWORD environment variable is required}"
+          : "\${REDIS_HOST:?REDIS_HOST environment variable is required}"
+          : "\${REDIS_PORT:?REDIS_PORT environment variable is required}"
+          : "\${REDIS_PASSWORD:?REDIS_PASSWORD environment variable is required}"
+
+          # Set defaults for optional variables
+          export TIKA_SERVER_JAR="\${TIKA_SERVER_JAR:-file://$(pwd)/tika-server-standard-3.2.3.jar}"
+          export PYTHONPATH="\${PYTHONPATH:-$(pwd)}"
+          export PATH="$(pwd)/.venv/bin:\${PATH}"
+
+          # Activate virtual environment
+          source .venv/bin/activate
+
+          # Set jemalloc path for better memory management
+          JEMALLOC_PATH=$(pkg-config --variable=libdir jemalloc)/libjemalloc.so
+          export LD_PRELOAD="\${JEMALLOC_PATH}"
+
+          # Start backend services
+          echo "[RAGFlow] Starting task executor..."
+          python rag/svr/task_executor.py 1 &
+
+          echo "[RAGFlow] Starting RAGFlow server..."
+          python api/ragflow_server.py
+          LAUNCH_EOF
+          chmod +x staging/ragflow/launch.sh
+
+          # Create README
+          cat > staging/ragflow/README.txt << 'README_EOF'
+          RAGFlow Server - Tarball Installation
+          =====================================
+
+          Prerequisites:
+          - Python 3.12 or later
+          - MySQL 8.0+ (or MariaDB)
+          - MinIO (object storage)
+          - Redis/Valkey
+          - Elasticsearch 8.x or OpenSearch (optional, for search capabilities)
+          - NGINX (for reverse proxy)
+
+          Required Environment Variables:
+          - MYSQL_HOST: MySQL server host
+          - MYSQL_PORT: MySQL server port (default: 5455)
+          - MYSQL_USER: MySQL username
+          - MYSQL_PASSWORD: MySQL password
+          - MINIO_HOST: MinIO server host
+          - MINIO_PORT: MinIO server port (default: 9000)
+          - MINIO_USER: MinIO access key
+          - MINIO_PASSWORD: MinIO secret key
+          - REDIS_HOST: Redis server host
+          - REDIS_PORT: Redis server port (default: 6379)
+          - REDIS_PASSWORD: Redis password
+
+          Optional Environment Variables:
+          - TIKA_SERVER_JAR: Path to Tika server JAR (default: bundled)
+          - HF_ENDPOINT: HuggingFace mirror endpoint
+          - PYTHONPATH: Python module search path (default: current directory)
+
+          Quick Start:
+          1. Install dependencies: MySQL, MinIO, Redis
+          2. Set environment variables (see above)
+          3. Run: ./launch.sh
+
+          For more information, visit: https://ragflow.io/docs/launch_ragflow_from_source
+          README_EOF
+
+      - name: Create tarball
+        run: |
+          cd staging
+          tar -czvf ../ragflow-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz ragflow
+          cd ..
+          echo "Tarball created: ragflow-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz"
+          ls -la ragflow-*.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ragflow-${{ matrix.arch }}
+          path: ragflow-${{ steps.version.outputs.version }}-${{ matrix.arch }}.tar.gz
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Upload tarballs to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
