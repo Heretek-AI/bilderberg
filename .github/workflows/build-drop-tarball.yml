@@ -213,12 +213,24 @@ jobs:
       contents: write
     
     steps:
+      - name: Checkout this repository for release
+        if: github.event_name != 'release'
+        uses: actions/checkout@v4
+
       - name: Get version for manual build
         id: version
         if: github.event_name != 'release'
         run: |
           VERSION=$(date +%m-%d-%Y)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create tag for manual build
+        if: github.event_name != 'release'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Drop build ${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Create release for manual build
         if: github.event_name != 'release'
