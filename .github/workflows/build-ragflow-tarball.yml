@@ -128,7 +128,8 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          uv sync --python ${{ env.PYTHON_VERSION }} --frozen
+          # Use unsafe-best-match to handle dependency conflicts between indexes
+          uv sync --python ${{ env.PYTHON_VERSION }} --index-strategy unsafe-best-match
 
       - name: Build frontend
         run: |
