@@ -42,11 +42,12 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(git describe --tags --match=v* --first-parent --always)
-          VERSION="${VERSION#v}"
           if [[ "${{ github.event_name }}" == "release" ]]; then
             VERSION="${{ github.event.release.tag_name }}"
             VERSION="${VERSION#v}"
+          else
+            # Use date-based version for manual builds: MM-DD-YYYY
+            VERSION=$(date +%m-%d-%Y)
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 

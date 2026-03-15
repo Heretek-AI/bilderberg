@@ -86,11 +86,13 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(jq -r '.version' package.json)
           if [[ "${{ github.event_name }}" == "release" ]]; then
             VERSION="${{ github.event.release.tag_name }}"
             # Remove 'v' prefix if present
             VERSION="${VERSION#v}"
+          else
+            # Use date-based version for manual builds: MM-DD-YYYY
+            VERSION=$(date +%m-%d-%Y)
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
       
