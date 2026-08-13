@@ -73,16 +73,17 @@ jobs:
         shell: bash
         run: |
           if [ -d "submodules/gdevelop/newIDE/electron-app" ]; then
+            export NODE_OPTIONS="--max-old-space-size=7168"
+            export CI=false
+            export GD_PORTABLE_BUILD=true
             cd submodules/gdevelop/newIDE/app
-            npm install --legacy-peer-deps || yarn install
-            npm run build || yarn build || true
+            npm install
             cd ../electron-app
-            npm install --legacy-peer-deps || yarn install
+            npm install
             if [ "${{ runner.os }}" == "Windows" ]; then
-              export GD_PORTABLE_BUILD=true
-              npm run build -- --publish never
+              npm run build -- --win nsis --publish=never
             else
-              GD_PORTABLE_BUILD=true npm run build -- --publish never
+              npm run build -- --linux AppImage --publish=never
             fi
           fi
 
