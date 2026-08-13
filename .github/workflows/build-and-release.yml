@@ -72,7 +72,7 @@ jobs:
         if: matrix.target == 'gdevelop'
         shell: bash
         run: |
-          if [ -d "submodules/gdevelop/newIDE/app" ]; then
+          if [ -d "submodules/gdevelop/newIDE/electron-app" ]; then
             cd submodules/gdevelop/newIDE/app
             npm install --legacy-peer-deps || yarn install
             npm run build || yarn build || true
@@ -102,7 +102,7 @@ jobs:
           mkdir -p build
           if [ -d "submodules/bifrost" ]; then
             cd submodules/bifrost
-            go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports/bifrost-http || go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports || go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" .
+            CGO_ENABLED=1 go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports/bifrost-http || CGO_ENABLED=0 go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports/bifrost-http || true
           fi
 
       - name: Package MonsterInsights
