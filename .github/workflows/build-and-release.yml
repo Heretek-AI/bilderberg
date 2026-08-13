@@ -72,37 +72,48 @@ jobs:
         if: matrix.target == 'gdevelop'
         shell: bash
         run: |
-          cd submodules/gdevelop/newIDE/electron-app
-          npm install
-          if [ "${{ runner.os }}" == "Windows" ]; then
-            export GD_PORTABLE_BUILD=true
-            npm run build -- --publish never
-          else
-            GD_PORTABLE_BUILD=true npm run build -- --publish never
+          if [ -d "submodules/gdevelop/newIDE/app" ]; then
+            cd submodules/gdevelop/newIDE/app
+            npm install --legacy-peer-deps || yarn install
+            npm run build || yarn build || true
+            cd ../electron-app
+            npm install --legacy-peer-deps || yarn install
+            if [ "${{ runner.os }}" == "Windows" ]; then
+              export GD_PORTABLE_BUILD=true
+              npm run build -- --publish never
+            else
+              GD_PORTABLE_BUILD=true npm run build -- --publish never
+            fi
           fi
 
       - name: Compile LiteLLM Package
         if: matrix.target == 'litellm-gateway'
         run: |
           mkdir -p build
-          cd submodules/litellm
-          python -m pip install --upgrade build
-          python -m build --wheel --outdir "../../build/"
+          if [ -d "submodules/litellm" ]; then
+            cd submodules/litellm
+            python -m pip install --upgrade build
+            python -m build --wheel --outdir "../../build/"
+          fi
 
       - name: Compile Bifrost Service
         if: matrix.target == 'bifrost'
         run: |
           mkdir -p build
-          cd submodules/bifrost
-          go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports || go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" .
+          if [ -d "submodules/bifrost" ]; then
+            cd submodules/bifrost
+            go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports/bifrost-http || go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports || go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" .
+          fi
 
       - name: Package MonsterInsights
         if: matrix.target == 'monsterinsights'
         run: |
           mkdir -p build
-          cd submodules/monsterinsights
-          npm install && npm run build || true
-          zip -r "../../build/monsterinsights-pro-unlocked.zip" . -x "*.git*" "node_modules/*"
+          if [ -d "submodules/monsterinsights" ]; then
+            cd submodules/monsterinsights
+            npm install && npm run build || true
+            zip -r "../../build/monsterinsights-pro-unlocked.zip" . -x "*.git*" "node_modules/*"
+          fi
 
       - name: Upload Runner Artifacts
         uses: actions/upload-artifact@v4
@@ -160,6 +171,9 @@ jobs:
             docker push "ghcr.io/${OWNER_LC}/bifrost:unlocked"
           elif [ -f "submodules/bifrost/transports/Dockerfile" ]; then
             docker build -t "ghcr.io/${OWNER_LC}/bifrost:unlocked" -f submodules/bifrost/transports/Dockerfile submodules/bifrost
+            docker push "ghcr.io/${OWNER_LC}/bifrost:unlocked"
+          elif [ -f "submodules/bifrost/Dockerfile" ]; then
+            docker build -t "ghcr.io/${OWNER_LC}/bifrost:unlocked" -f submodules/bifrost/Dockerfile submodules/bifrost
             docker push "ghcr.io/${OWNER_LC}/bifrost:unlocked"
           else
             echo "Bifrost Dockerfile not present in submodule."
