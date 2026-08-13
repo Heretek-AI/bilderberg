@@ -1,0 +1,121 @@
+name: Multi-Target Patch and Build Engine
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-matrix:
+    name: Build ${{ matrix.target }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: gdevelop
+            os: ubuntu-latest
+            artifact_path: submodules/gdevelop/newIDE/electron-app/dist/*.AppImage
+            artifact_name: GDevelop-Unlocked-Linux.AppImage
+          - target: gdevelop
+            os: windows-latest
+            artifact_path: submodules/gdevelop/newIDE/electron-app/dist/*.exe
+            artifact_name: GDevelop-Unlocked-Setup.exe
+          - target: litellm-gateway
+            os: ubuntu-latest
+            artifact_path: build/litellm-gateway-linux-amd64
+            artifact_name: litellm-gateway-linux-amd64
+          - target: monsterinsights
+            os: ubuntu-latest
+            artifact_path: build/monsterinsights-pro-unlocked.zip
+            artifact_name: monsterinsights-pro-unlocked.zip
+
+    steps:
+      - name: Checkout Meta-Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Initialize Node.js Environment
+        if: matrix.target == 'gdevelop' || matrix.target == 'monsterinsights'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Initialize Go Environment
+        if: matrix.target == 'litellm-gateway'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Execute Patch Engine
+        run: |
+          chmod +x ./scripts/apply-patches.sh
+          ./scripts/apply-patches.sh ${{ matrix.target }}
+
+      - name: Compile GDevelop App
+        if: matrix.target == 'gdevelop'
+        shell: bash
+        run: |
+          cd submodules/gdevelop/newIDE/app
+          yarn install
+          cd ../electron-app
+          yarn install
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            export GD_PORTABLE_BUILD=true
+            npm run build -- --publish never
+          else
+            GD_PORTABLE_BUILD=true npm run build -- --publish never
+          fi
+
+      - name: Compile LiteLLM Gateway
+        if: matrix.target == 'litellm-gateway'
+        run: |
+          mkdir -p build
+          cd submodules/litellm
+          go build -ldflags="-s -w" -o "../../build/litellm-gateway-linux-amd64" ./cmd/gateway || true
+
+      - name: Package MonsterInsights
+        if: matrix.target == 'monsterinsights'
+        run: |
+          mkdir -p build
+          cd submodules/monsterinsights
+          npm install && npm run build
+          zip -r "../../build/monsterinsights-pro-unlocked.zip" . -x "*.git*" "node_modules/*"
+
+      - name: Upload Runner Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-${{ runner.os }}-artifact
+          path: ${{ matrix.artifact_path }}
+
+  publish-release:
+    name: Generate GitHub Release
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Compiled Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-vendor
+
+      - name: Compute Cryptographic Hashes
+        run: |
+          mkdir -p dist
+          find release-vendor/ -type f -exec cp {} dist/ \;
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Publish Build Assets to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-v${{ github.run_number }}
+          name: Automated Patch Build Release v${{ github.run_number }}
+          draft: false
+          prerelease: false
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

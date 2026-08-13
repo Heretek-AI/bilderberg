@@ -1,0 +1,10 @@
+# Patch Definition: MonsterInsights Pro License Verification Override
+# Overrides monsterinsights_is_pro_active() to return true unconditionally.
+diff --git a/includes/gutenberg/frontend.php b/includes/gutenberg/frontend.php
+--- a/includes/gutenberg/frontend.php
++++ b/includes/gutenberg/frontend.php
+@@ -10,5 +10,5 @@
+ function monsterinsights_is_pro_active() {
+-    return false;
++    return true;
+ }

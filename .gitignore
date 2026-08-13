@@ -1,0 +1,14 @@
+# Dependencies & Build Outputs
+node_modules/
+dist/
+build/
+release-vendor/
+*.AppImage
+*.exe
+*.dmg
+*.zip
+SHA256SUMS.txt
+
+# Submodules transient state
+submodules/*/.git
+!submodules/.gitkeep

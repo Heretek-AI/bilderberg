@@ -1,0 +1,9 @@
+# Patch Definition: LiteLLM Enterprise License Verification Bypass
+# Overrides IsEnterprise() validation check to return true without remote API verification.
+diff --git a/litellm/license.py b/litellm/license.py
+--- a/litellm/license.py
++++ b/litellm/license.py
+@@ -1,5 +1,5 @@
+ def is_enterprise_active():
+-    return False
++    return True

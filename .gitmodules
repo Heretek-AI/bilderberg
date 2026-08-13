@@ -1,0 +1,12 @@
+[submodule "submodules/gdevelop"]
+	path = submodules/gdevelop
+	url = https://github.com/4ian/GDevelop.git
+	branch = main
+[submodule "submodules/litellm"]
+	path = submodules/litellm
+	url = https://github.com/BerriAI/litellm.git
+	branch = main
+[submodule "submodules/monsterinsights"]
+	path = submodules/monsterinsights
+	url = https://github.com/awesomemotive/monsterinsights.git
+	branch = master

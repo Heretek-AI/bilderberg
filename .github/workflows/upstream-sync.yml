@@ -1,0 +1,38 @@
+name: Upstream Submodule Synchronization Observer
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-and-sync:
+    name: Check Upstream Submodule Deltas
+    runs-on: ubuntu-latest
+    outputs:
+      has_updates: ${{ steps.sync.outputs.has_updates }}
+    steps:
+      - name: Checkout Meta-Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure Git Identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Synchronize Submodules
+        id: sync
+        run: |
+          git submodule update --remote --merge
+          if ! git diff --quiet; then
+            git commit -am "chore(deps): update upstream submodule pointer references"
+            git push origin main
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+          else
+            echo "No upstream changes detected."
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+          fi

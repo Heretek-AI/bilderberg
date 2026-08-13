@@ -1,0 +1,12 @@
+# Patch Definition: GDevelop Custom LLM Key Endpoint Override
+# This patch enables custom API key and base URL overrides for GDevelop AI interaction services.
+diff --git a/newIDE/app/src/AI/AIService.js b/newIDE/app/src/AI/AIService.js
+--- a/newIDE/app/src/AI/AIService.js
++++ b/newIDE/app/src/AI/AIService.js
+@@ -10,6 +10,12 @@ export const getAIAssistantEndpoint = () => {
++  const customEndpoint = process.env.CUSTOM_AI_ENDPOINT || window.CUSTOM_AI_ENDPOINT;
++  if (customEndpoint) {
++    return customEndpoint;
++  }
+   return 'https://api.gdevelop.io/ai';
+ };
