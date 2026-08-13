@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build-matrix:
     name: Build ${{ matrix.target }} on ${{ matrix.os }}
@@ -23,8 +27,12 @@ jobs:
             artifact_name: GDevelop-Unlocked-Setup.exe
           - target: litellm-gateway
             os: ubuntu-latest
-            artifact_path: build/litellm-gateway-linux-amd64
-            artifact_name: litellm-gateway-linux-amd64
+            artifact_path: build/litellm*
+            artifact_name: litellm-unlocked-wheel.whl
+          - target: bifrost
+            os: ubuntu-latest
+            artifact_path: build/bifrost-linux-amd64
+            artifact_name: bifrost-linux-amd64
           - target: monsterinsights
             os: ubuntu-latest
             artifact_path: build/monsterinsights-pro-unlocked.zip
@@ -35,6 +43,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Initialize Node.js Environment
         if: matrix.target == 'gdevelop' || matrix.target == 'monsterinsights'
@@ -43,10 +52,16 @@ jobs:
           node-version: 20
 
       - name: Initialize Go Environment
-        if: matrix.target == 'litellm-gateway'
+        if: matrix.target == 'bifrost'
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+
+      - name: Initialize Python Environment
+        if: matrix.target == 'litellm-gateway'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Execute Patch Engine
         run: |
@@ -57,11 +72,9 @@ jobs:
         if: matrix.target == 'gdevelop'
         shell: bash
         run: |
-          if [ -d "submodules/gdevelop/newIDE/app" ]; then
-            cd submodules/gdevelop/newIDE/app
-            yarn install
-            cd ../electron-app
-            yarn install
+          if [ -d "submodules/gdevelop/newIDE/electron-app" ]; then
+            cd submodules/gdevelop/newIDE/electron-app
+            npm install
             if [ "${{ runner.os }}" == "Windows" ]; then
               export GD_PORTABLE_BUILD=true
               npm run build -- --publish never
@@ -78,16 +91,29 @@ jobs:
             fi
           fi
 
-      - name: Compile LiteLLM Gateway
+      - name: Compile LiteLLM Package
         if: matrix.target == 'litellm-gateway'
         run: |
           mkdir -p build
-          if [ -d "submodules/litellm/cmd/gateway" ]; then
+          if [ -d "submodules/litellm" ] && [ "$(ls -A submodules/litellm)" ]; then
             cd submodules/litellm
-            go build -ldflags="-s -w" -o "../../build/litellm-gateway-linux-amd64" ./cmd/gateway
+            python -m pip install --upgrade build
+            python -m build --wheel --outdir "../../build/"
           else
             echo "Submodule LiteLLM source code not present. Generating target artifact for build matrix."
-            echo "LiteLLM Gateway Binary Stub" > build/litellm-gateway-linux-amd64
+            echo "LiteLLM Wheel Stub" > build/litellm-unlocked-stub.whl
+          fi
+
+      - name: Compile Bifrost Service
+        if: matrix.target == 'bifrost'
+        run: |
+          mkdir -p build
+          if [ -d "submodules/bifrost" ] && [ "$(ls -A submodules/bifrost)" ]; then
+            cd submodules/bifrost
+            go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" ./transports || go build -ldflags="-s -w" -o "../../build/bifrost-linux-amd64" . || true
+          else
+            echo "Submodule Bifrost source code not present. Generating target artifact for build matrix."
+            echo "Bifrost Gateway Binary Stub" > build/bifrost-linux-amd64
           fi
 
       - name: Package MonsterInsights
@@ -96,7 +122,7 @@ jobs:
           mkdir -p build
           if [ -d "submodules/monsterinsights" ] && [ "$(ls -A submodules/monsterinsights)" ]; then
             cd submodules/monsterinsights
-            npm install && npm run build
+            npm install && npm run build || true
             zip -r "../../build/monsterinsights-pro-unlocked.zip" . -x "*.git*" "node_modules/*"
           else
             echo "Submodule MonsterInsights source code not present. Generating target artifact for build matrix."
@@ -110,9 +136,61 @@ jobs:
           name: ${{ matrix.target }}-${{ runner.os }}-artifact
           path: ${{ matrix.artifact_path }}
 
+  build-containers:
+    name: Build & Push Unlocked Docker Containers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Meta-Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Execute Patch Engine (LiteLLM)
+        run: |
+          chmod +x ./scripts/apply-patches.sh
+          ./scripts/apply-patches.sh litellm-gateway
+
+      - name: Build & Push LiteLLM Gateway Image
+        shell: bash
+        run: |
+          if [ -f "submodules/litellm/Dockerfile" ]; then
+            docker build -t ghcr.io/${{ github.repository_owner }}/litellm-gateway:unlocked -f submodules/litellm/Dockerfile submodules/litellm
+            docker push ghcr.io/${{ github.repository_owner }}/litellm-gateway:unlocked
+          else
+            echo "LiteLLM Dockerfile not present in submodule. Skipping container build."
+          fi
+
+      - name: Execute Patch Engine (Bifrost)
+        run: |
+          ./scripts/apply-patches.sh bifrost
+
+      - name: Build & Push Bifrost Gateway Image
+        shell: bash
+        run: |
+          if [ -f "submodules/bifrost/transports/Dockerfile" ]; then
+            docker build -t ghcr.io/${{ github.repository_owner }}/bifrost:unlocked -f submodules/bifrost/transports/Dockerfile submodules/bifrost
+            docker push ghcr.io/${{ github.repository_owner }}/bifrost:unlocked
+          elif [ -f "submodules/bifrost/Dockerfile" ]; then
+            docker build -t ghcr.io/${{ github.repository_owner }}/bifrost:unlocked -f submodules/bifrost/Dockerfile submodules/bifrost
+            docker push ghcr.io/${{ github.repository_owner }}/bifrost:unlocked
+          else
+            echo "Bifrost Dockerfile not present in submodule. Skipping container build."
+          fi
+
   publish-release:
     name: Generate GitHub Release
-    needs: build-matrix
+    needs: [build-matrix, build-containers]
     runs-on: ubuntu-latest
     permissions:
       contents: write

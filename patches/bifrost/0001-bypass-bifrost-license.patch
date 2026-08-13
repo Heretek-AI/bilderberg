@@ -1,0 +1,12 @@
+# Patch Definition: Bifrost Enterprise License Override
+# Overrides IsLicenseValid() to evaluate as true without remote authentication pings.
+diff --git a/transports/license.go b/transports/license.go
+--- a/transports/license.go
++++ b/transports/license.go
+@@ -1,5 +1,5 @@
+ package transports
+
+ func IsLicenseValid() bool {
+-	return false
++	return true
+ }

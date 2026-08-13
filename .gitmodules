@@ -2,11 +2,19 @@
 	path = submodules/gdevelop
 	url = https://github.com/4ian/GDevelop.git
 	branch = main
+	shallow = true
 [submodule "submodules/litellm"]
 	path = submodules/litellm
 	url = https://github.com/BerriAI/litellm.git
 	branch = main
+	shallow = true
+[submodule "submodules/bifrost"]
+	path = submodules/bifrost
+	url = https://github.com/maximhq/bifrost.git
+	branch = main
+	shallow = true
 [submodule "submodules/monsterinsights"]
 	path = submodules/monsterinsights
-	url = https://github.com/awesomemotive/monsterinsights.git
+	url = https://github.com/wp-plugins/google-analytics-for-wordpress.git
 	branch = master
+	shallow = true
