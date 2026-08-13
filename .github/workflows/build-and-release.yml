@@ -182,7 +182,10 @@ jobs:
         shell: bash
         run: |
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          if [ -f "submodules/bifrost/transports/Dockerfile" ]; then
+          if [ -f "submodules/bifrost/transports/Dockerfile.local" ]; then
+            docker build -t "ghcr.io/${OWNER_LC}/bifrost:unlocked" -f submodules/bifrost/transports/Dockerfile.local submodules/bifrost
+            docker push "ghcr.io/${OWNER_LC}/bifrost:unlocked"
+          elif [ -f "submodules/bifrost/transports/Dockerfile" ]; then
             docker build -t "ghcr.io/${OWNER_LC}/bifrost:unlocked" -f submodules/bifrost/transports/Dockerfile submodules/bifrost
             docker push "ghcr.io/${OWNER_LC}/bifrost:unlocked"
           elif [ -f "submodules/bifrost/Dockerfile" ]; then
