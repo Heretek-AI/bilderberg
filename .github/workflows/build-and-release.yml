@@ -96,12 +96,12 @@ jobs:
         if: matrix.target == 'litellm-gateway'
         run: |
           mkdir -p build
-          if [ -d "submodules/litellm" ] && [ "$(ls -A submodules/litellm)" ]; then
+          if [ -d "submodules/litellm" ] && [ -f "submodules/litellm/setup.py" -o -f "submodules/litellm/pyproject.toml" ]; then
             cd submodules/litellm
             python -m pip install --upgrade build
             python -m build --wheel --outdir "../../build/"
           else
-            echo "Submodule LiteLLM source code not present. Generating target artifact for build matrix."
+            echo "LiteLLM python project config not present. Generating target artifact for build matrix."
             echo "LiteLLM Wheel Stub" > build/litellm-unlocked-stub.whl
           fi
 
@@ -166,9 +166,10 @@ jobs:
       - name: Build & Push LiteLLM Gateway Image
         shell: bash
         run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           if [ -f "submodules/litellm/Dockerfile" ]; then
-            docker build -t ghcr.io/${{ github.repository_owner }}/litellm-gateway:unlocked -f submodules/litellm/Dockerfile submodules/litellm
-            docker push ghcr.io/${{ github.repository_owner }}/litellm-gateway:unlocked
+            docker build -t "ghcr.io/${OWNER_LC}/litellm-gateway:unlocked" -f submodules/litellm/Dockerfile submodules/litellm
+            docker push "ghcr.io/${OWNER_LC}/litellm-gateway:unlocked"
           else
             echo "LiteLLM Dockerfile not present in submodule. Skipping container build."
           fi
@@ -180,12 +181,13 @@ jobs:
       - name: Build & Push Bifrost Gateway Image
         shell: bash
         run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           if [ -f "submodules/bifrost/transports/Dockerfile" ]; then
-            docker build -t ghcr.io/${{ github.repository_owner }}/bifrost:unlocked -f submodules/bifrost/transports/Dockerfile submodules/bifrost
-            docker push ghcr.io/${{ github.repository_owner }}/bifrost:unlocked
+            docker build -t "ghcr.io/${OWNER_LC}/bifrost:unlocked" -f submodules/bifrost/transports/Dockerfile submodules/bifrost
+            docker push "ghcr.io/${OWNER_LC}/bifrost:unlocked"
           elif [ -f "submodules/bifrost/Dockerfile" ]; then
-            docker build -t ghcr.io/${{ github.repository_owner }}/bifrost:unlocked -f submodules/bifrost/Dockerfile submodules/bifrost
-            docker push ghcr.io/${{ github.repository_owner }}/bifrost:unlocked
+            docker build -t "ghcr.io/${OWNER_LC}/bifrost:unlocked" -f submodules/bifrost/Dockerfile submodules/bifrost
+            docker push "ghcr.io/${OWNER_LC}/bifrost:unlocked"
           else
             echo "Bifrost Dockerfile not present in submodule. Skipping container build."
           fi
