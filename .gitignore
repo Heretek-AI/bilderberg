@@ -1,14 +1,20 @@
-# Dependencies & Build Outputs
-node_modules/
-dist/
-build/
-release-vendor/
-*.AppImage
-*.exe
-*.dmg
-*.zip
-SHA256SUMS.txt
+# Python & byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
 
-# Submodules transient state
-submodules/*/.git
-!submodules/.gitkeep
+# Build & CI transient artifacts
+digests/
+receipts/
+upstream/
+meta/
+build/
+dist/
+*.tar.gz
+
+# OS & editor files
+.DS_Store
+*.swp

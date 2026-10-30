@@ -1,0 +1,50 @@
+# targets.yaml
+# Declarative registry of upstream repositories and Dockerfile build targets.
+defaults:
+  registry: ghcr.io
+  namespace: heretek-ai
+  branch: main
+  platforms:
+    - linux/amd64
+    - linux/arm64
+  auto_discover: true
+  exclude_dockerfiles:
+    - "tests/**"
+    - "test/**"
+    - "examples/**"
+    - "docs/**"
+    - "benchmark/**"
+    - "evaluation/**"
+
+targets:
+  # Target 1: MemTensor/MemOS
+  - id: memos
+    repo: MemTensor/MemOS
+    branch: main
+    description: "Self-evolving memory OS for LLM & AI Agents"
+    auto_discover: true
+    ignore_paths:
+      - "docs/**"
+      - "*.md"
+      - "assets/**"
+      - "evaluation/**"
+      - "examples/**"
+    images:
+      # Root production Dockerfile (multi-stage python:3.11-slim -> uvicorn server_api)
+      - name: memos
+        dockerfile: Dockerfile
+        context: .
+        platforms:
+          - linux/amd64
+          - linux/arm64
+        build_args:
+          HF_ENDPOINT: "https://huggingface.co"
+
+      # Secondary Dockerfile in docker/ directory (auto-infers context and skips if absent)
+      - name: memos-docker
+        dockerfile: docker/Dockerfile
+        context: auto
+        optional: true
+        platforms:
+          - linux/amd64
+          - linux/arm64

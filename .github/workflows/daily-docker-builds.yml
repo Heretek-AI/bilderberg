@@ -1,0 +1,227 @@
+name: Daily Dynamic Upstream Docker Builds
+
+on:
+  schedule:
+    # Runs every day at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      target_filter:
+        description: 'Optional target ID to build (e.g., memos). Leave blank for all.'
+        required: false
+        default: ''
+      force_rebuild:
+        description: 'Force rebuild even if upstream commit SHA has not changed'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  monitor:
+    name: Check Upstream Commits & Resolve Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      has_builds: ${{ steps.resolve.outputs.has_builds }}
+      build_matrix: ${{ steps.resolve.outputs.build_matrix }}
+      image_matrix: ${{ steps.resolve.outputs.image_matrix }}
+    steps:
+      - name: Checkout Bilderberg Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Resolve Changed Upstreams & Dockerfiles
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild || 'false' }}
+          TARGET_FILTER: ${{ inputs.target_filter || '' }}
+        run: python3 scripts/resolve_matrix.py
+
+  build-arch:
+    name: Build ${{ matrix.image_name }} (${{ matrix.arch_slug }} @ ${{ matrix.short_sha }})
+    needs: monitor
+    if: needs.monitor.outputs.has_builds == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.monitor.outputs.build_matrix) }}
+    steps:
+      - name: Checkout Bilderberg Repository (Patches & Scripts)
+        uses: actions/checkout@v4
+        with:
+          path: meta
+
+      - name: Checkout Upstream (${{ matrix.repo }}@${{ matrix.short_sha }})
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.sha }}
+          path: upstream
+          submodules: recursive
+
+      - name: Apply Optional Target Patches
+        run: |
+          if [ -d "meta/patches/${{ matrix.target_id }}" ]; then
+            chmod +x meta/scripts/apply-patches.sh
+            cd upstream
+            ../meta/scripts/apply-patches.sh "${{ matrix.target_id }}"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Architecture Image by Digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: upstream/${{ matrix.context }}
+          file: upstream/${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          build-args: ${{ matrix.build_args }}
+          target: ${{ matrix.target_stage }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ matrix.repo }}
+            org.opencontainers.image.revision=${{ matrix.sha }}
+          outputs: type=image,name=${{ matrix.full_image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image_name }}-${{ matrix.arch_slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image_name }}-${{ matrix.arch_slug }}
+
+      - name: Export Digest Artifact
+        run: |
+          mkdir -p digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "digests/${digest#sha256:}"
+
+      - name: Upload Digest Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image_name }}-${{ matrix.arch_slug }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-manifests:
+    name: Publish Multi-Arch ${{ matrix.image_name }} (${{ matrix.short_sha }})
+    needs: [monitor, build-arch]
+    if: always() && needs.monitor.outputs.has_builds == 'true' && needs.build-arch.result != 'cancelled'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.monitor.outputs.image_matrix) }}
+    steps:
+      - name: Download Architecture Digests for ${{ matrix.image_name }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-${{ matrix.image_name }}-*
+          path: digests
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata & Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.full_image }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=sha-${{ matrix.short_sha }}
+            type=raw,value={{date 'YYYY.MM.DD'}}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ matrix.repo }}
+            org.opencontainers.image.revision=${{ matrix.sha }}
+
+      - name: Verify All Expected Architecture Digests & Create Multi-Arch Manifest
+        working-directory: digests
+        run: |
+          expected_count=$(echo "${{ matrix.platforms }}" | tr ',' '\n' | wc -l)
+          actual_count=$(ls -1 2>/dev/null | wc -l)
+          if [ "$actual_count" -lt "$expected_count" ]; then
+            echo "::error::Expected $expected_count platform digests for ${{ matrix.image_name }}, found $actual_count"
+            exit 1
+          fi
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(jq -cr '.labels | to_entries | map("--annotation " + "index:" + .key + "=" + .value) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ matrix.full_image }}@sha256:%s ' *)
+
+      - name: Inspect Published Multi-Arch Image
+        run: docker buildx imagetools inspect ${{ matrix.full_image }}:sha-${{ matrix.short_sha }}
+
+      - name: Write Verified Build Receipt
+        run: |
+          mkdir -p receipts
+          cat <<EOF > "receipts/${{ matrix.target_id }}__${{ matrix.image_name }}.json"
+          {
+            "state_key": "${{ matrix.state_key }}",
+            "repo": "${{ matrix.repo }}",
+            "dockerfile": "${{ matrix.dockerfile }}",
+            "context": "${{ matrix.context }}",
+            "platforms": "${{ matrix.platforms }}",
+            "sha": "${{ matrix.sha }}",
+            "image": "${{ matrix.full_image }}:sha-${{ matrix.short_sha }}",
+            "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Upload Verified Build Receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: receipt-${{ matrix.target_id }}-${{ matrix.image_name }}
+          path: receipts/*.json
+          retention-days: 3
+
+  record-state:
+    name: Commit Updated state/build-state.json
+    needs: [monitor, merge-manifests]
+    if: always() && needs.monitor.outputs.has_builds == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Bilderberg Repository
+        uses: actions/checkout@v4
+
+      - name: Download Verified Build Receipts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: receipt-*
+          path: receipts
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Merge Receipts & Commit State
+        run: |
+          python3 scripts/update_state.py
+          if ! git diff --quiet state/build-state.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add state/build-state.json
+            git commit -m "chore(state): record built upstream container SHAs [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
