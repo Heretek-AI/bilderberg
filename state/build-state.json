@@ -1,1 +1,11 @@
-{}
+{
+  "memos/memos-docker": {
+    "built_at": "2026-10-30T16:26:31Z",
+    "context": ".",
+    "dockerfile": "docker/Dockerfile",
+    "image": "ghcr.io/heretek-ai/memos-docker:sha-64388b5",
+    "platforms": "linux/amd64,linux/arm64",
+    "repo": "MemTensor/MemOS",
+    "sha": "64388b50e2a15528bcdf032e65a1ac792bcf63ee"
+  }
+}
