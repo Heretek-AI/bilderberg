@@ -9,12 +9,12 @@
     "sha": "64388b50e2a15528bcdf032e65a1ac792bcf63ee"
   },
   "memos/memos-docker": {
-    "built_at": "2026-10-30T16:26:31Z",
+    "built_at": "2026-11-04T01:25:10Z",
     "context": ".",
     "dockerfile": "docker/Dockerfile",
-    "image": "ghcr.io/heretek-ai/memos-docker:sha-64388b5",
+    "image": "ghcr.io/heretek-ai/memos-docker:sha-44a87f7",
     "platforms": "linux/amd64,linux/arm64",
     "repo": "MemTensor/MemOS",
-    "sha": "64388b50e2a15528bcdf032e65a1ac792bcf63ee"
+    "sha": "44a87f7ee78d6b38e9337acd236a139b6f1e8fcf"
   }
 }
