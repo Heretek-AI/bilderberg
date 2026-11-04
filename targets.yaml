@@ -15,14 +15,19 @@ defaults:
     - "docs/**"
     - "benchmark/**"
     - "evaluation/**"
+    - "apps/**"
+    - "**/e2e/**"
+    - "*.krolik"
+    - "**/*.krolik"
 
 targets:
   # Target 1: MemTensor/MemOS
+  # Official build instructions: https://github.com/MemTensor/MemOS
   - id: memos
     repo: MemTensor/MemOS
     branch: main
     description: "Self-evolving memory OS for LLM & AI Agents"
-    auto_discover: true
+    auto_discover: false
     ignore_paths:
       - "docs/**"
       - "*.md"
@@ -40,10 +45,10 @@ targets:
         build_args:
           HF_ENDPOINT: "https://huggingface.co"
 
-      # Secondary Dockerfile in docker/ directory (auto-infers context and skips if absent)
+      # Secondary Dockerfile in docker/ directory (official dev compose setup)
       - name: memos-docker
         dockerfile: docker/Dockerfile
-        context: auto
+        context: .
         optional: true
         platforms:
           - linux/amd64

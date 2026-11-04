@@ -114,14 +114,19 @@ defaults:
     - "docs/**"
     - "benchmark/**"
     - "evaluation/**"
+    - "apps/**"
+    - "**/e2e/**"
+    - "*.krolik"
+    - "**/*.krolik"
 
 targets:
   # Target 1: MemTensor/MemOS
+  # Official build instructions: https://github.com/MemTensor/MemOS
   - id: memos
     repo: MemTensor/MemOS
     branch: main
     description: "Self-evolving memory OS for LLM & AI Agents"
-    auto_discover: true
+    auto_discover: false
     ignore_paths:
       - "docs/**"
       - "*.md"
@@ -139,10 +144,10 @@ targets:
         build_args:
           HF_ENDPOINT: "https://huggingface.co"
 
-      # Secondary Dockerfile in docker/ directory (auto-infers context and skips if absent)
+      # Secondary Dockerfile in docker/ directory (official dev compose setup)
       - name: memos-docker
         dockerfile: docker/Dockerfile
-        context: auto
+        context: .
         optional: true
         platforms:
           - linux/amd64
@@ -685,12 +690,13 @@ jobs:
             org.opencontainers.image.revision=${{ matrix.sha }}
 
       - name: Verify All Expected Architecture Digests & Create Multi-Arch Manifest
-        working-directory: digests
         run: |
+          mkdir -p digests
+          cd digests
           expected_count=$(echo "${{ matrix.platforms }}" | tr ',' '\n' | wc -l)
           actual_count=$(ls -1 2>/dev/null | wc -l)
           if [ "$actual_count" -lt "$expected_count" ]; then
-            echo "::error::Expected $expected_count platform digests for ${{ matrix.image_name }}, found $actual_count"
+            echo "::error::Expected $expected_count platform digests for ${{ matrix.image_name }}, found $actual_count. Architecture builds may have failed."
             exit 1
           fi
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
