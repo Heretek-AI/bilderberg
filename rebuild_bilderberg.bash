@@ -644,7 +644,7 @@ jobs:
       - name: Upload Digest Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.image_name }}-${{ matrix.arch_slug }}
+          name: digests--${{ matrix.image_name }}--${{ matrix.arch_slug }}
           path: digests/*
           if-no-files-found: error
           retention-days: 1
@@ -661,7 +661,7 @@ jobs:
       - name: Download Architecture Digests for ${{ matrix.image_name }}
         uses: actions/download-artifact@v4
         with:
-          pattern: digests-${{ matrix.image_name }}-*
+          pattern: digests--${{ matrix.image_name }}--*
           path: digests
           merge-multiple: true
         continue-on-error: true
@@ -695,7 +695,7 @@ jobs:
           cd digests
           expected_count=$(echo "${{ matrix.platforms }}" | tr ',' '\n' | wc -l)
           actual_count=$(ls -1 2>/dev/null | wc -l)
-          if [ "$actual_count" -lt "$expected_count" ]; then
+          if [ "$actual_count" -ne "$expected_count" ]; then
             echo "::error::Expected $expected_count platform digests for ${{ matrix.image_name }}, found $actual_count. Architecture builds may have failed."
             exit 1
           fi
