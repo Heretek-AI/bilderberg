@@ -1,20 +1,20 @@
 {
   "memos/memos": {
-    "built_at": "2026-11-04T14:04:55Z",
+    "built_at": "2026-11-09T15:47:00Z",
     "context": ".",
     "dockerfile": "Dockerfile",
-    "image": "ghcr.io/heretek-ai/memos:sha-d326a64",
+    "image": "ghcr.io/heretek-ai/memos:sha-3a16e5f",
     "platforms": "linux/amd64,linux/arm64",
     "repo": "MemTensor/MemOS",
-    "sha": "d326a6419467c2205041b58533b0ebfdf4f38173"
+    "sha": "3a16e5fe3048a209f722806f4123fa2e533588fd"
   },
   "memos/memos-docker": {
-    "built_at": "2026-11-04T14:04:50Z",
+    "built_at": "2026-11-09T15:47:01Z",
     "context": ".",
     "dockerfile": "docker/Dockerfile",
-    "image": "ghcr.io/heretek-ai/memos-docker:sha-d326a64",
+    "image": "ghcr.io/heretek-ai/memos-docker:sha-3a16e5f",
     "platforms": "linux/amd64,linux/arm64",
     "repo": "MemTensor/MemOS",
-    "sha": "d326a6419467c2205041b58533b0ebfdf4f38173"
+    "sha": "3a16e5fe3048a209f722806f4123fa2e533588fd"
   }
 }
